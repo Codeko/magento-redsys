@@ -35,6 +35,9 @@ class Excellenceredsys_Redsys_Model_Payredsys extends Mage_Payment_Model_Method_
     protected $_canCapture              = true;
     protected $_canCapturePartial       = true;
     protected $_canRefund               = true;
+    // INI MOD #7503
+    protected $_canRefundInvoicePartial = true;
+    // FIN MOD #7503
     protected $_canVoid                 = true;
     protected $_canUseInternal          = true;
     protected $_canUseCheckout          = true;

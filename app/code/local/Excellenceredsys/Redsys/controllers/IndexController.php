@@ -345,7 +345,7 @@ class Excellenceredsys_Redsys_IndexController extends Mage_Core_Controller_Front
                 $this->escribirLog($idLog . " - Código de respuesta: " . $respuesta, $logActivo);
                 if ($respuesta < 101) {
                     //Mage::log('Redsys: Pago aceptado');
-                    $this->escribirLog($idLog . " - Pago aceptado.", $logActivo);
+                    $this->escribirLog($idLog . " - Pago aceptado.", $logActivo);                    
                     //Correo electrónico
                     $correo = Mage::getStoreConfig('payment/redsys/correo', Mage::app()->getStore());
                     $mensaje = Mage::getStoreConfig('payment/redsys/mensaje', Mage::app()->getStore());
@@ -367,7 +367,17 @@ class Excellenceredsys_Redsys_IndexController extends Mage_Core_Controller_Front
                     $orde = $ord;
                     $this->escribirLog($idLog . " - Order increment id " . $orde, $logActivo);
                     $order = Mage::getModel('sales/order')->loadByIncrementId($orde);
-
+                    // INI MOD #7632
+                    // Si el estado del pedido se encuentra cancelado pero se acepta un pago lo registramos como comentario para el pedido
+                    if($order->getStatus() == 'canceled'){
+                        $comment = 'Redsys ha notificado un pago para un pedido cancelado';
+                        $order->addStatusHistoryComment($comment);
+                        $order->save();
+                        $this->escribirLog($idLog . " -- " . $comment, $logActivo);
+                        // Salimos de la funcion y evitamos que se tramite la factura
+                        return;
+                    }
+                    // FIN MOD #7632
                     $transaction_amount = number_format($order->getBaseGrandTotal(), 2, '', '');
                     $amountOrig = (float) $transaction_amount;
 
@@ -384,6 +394,10 @@ class Excellenceredsys_Redsys_IndexController extends Mage_Core_Controller_Front
                         $order->save();
                         //$this->_redirect('checkout/onepage/failure');
                         $this->escribirLog($idLog . " -- " . "El pedido con ID de carrito " . $orde . " es inválido.", $logActivo);
+                        // INI MOD #7632
+                        // Salimos de la funcion y evitamos que se tramite la factura
+                        return;
+                        // FIN MOD #7632
                     }
 
                     try {
@@ -427,6 +441,7 @@ class Excellenceredsys_Redsys_IndexController extends Mage_Core_Controller_Front
                         $this->escribirLog($idLog . " -- " . "El pedido con ID de carrito " . $orderId . " es válido y se ha registrado correctamente.", $logActivo);
 
                         // INI MOD #7375 Borramos el carrito porque el módulo no lo hacía
+                        $session = Mage::getSingleton('checkout/session');
                         $session->setQuoteId($order->getQuoteId());
                         $session->getQuote()->setIsActive(false)->save();
                         // FIN MOD #7375
@@ -435,20 +450,24 @@ class Excellenceredsys_Redsys_IndexController extends Mage_Core_Controller_Front
                     } catch (Exception $e) {
                         $order->addStatusHistoryComment('Redsys: Exception message: ' . $e->getMessage(), false);
                         $order->save();
-                    }
+                    }                    
                 } else {
                     $this->escribirLog($idLog . " - Pago no aceptado", $logActivo);
                     $ord = $pedido;
                     $orde = $ord;
                     $order = Mage::getModel('sales/order')->loadByIncrementId($orde);
-                    $state = 'new';
-                    $status = 'canceled';
-                    $comment = 'Redsys ha actualizado el estado del pedido con el valor "' . $status . '"';
-                    $this->escribirLog($idLog . " - Actualizado el estado del pedido con el valor " . $status, $logActivo);
-                    $isCustomerNotified = true;
-                    $order->setState($state, $status, $comment, $isCustomerNotified);
-                    $order->registerCancellation("")->save();
-                    $order->save();
+                    if($order->getStatus()=="pending"){
+                        $state = 'new';
+                        $status = 'canceled';
+                        $comment = 'Redsys ha actualizado el estado del pedido con el valor "' . $status . '"';
+                        $this->escribirLog($idLog . " - Actualizado el estado del pedido con el valor " . $status, $logActivo);
+                        $isCustomerNotified = true;
+                        $order->setState($state, $status, $comment, $isCustomerNotified);
+                        $order->registerCancellation("")->save();
+                        $order->save();
+                    }else{
+                        $this->escribirLog($idLog . " - No se ha cancelado el pedido $orde porque no estaba 'pending' sino ".$order->getStatus(), $logActivo);
+                    }
                     //$this->_redirect('checkout/onepage/failure');
                 }
             }// if (firma_local!=firma_remota)
